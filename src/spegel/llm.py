@@ -29,9 +29,12 @@ try:
 except ImportError:  # pragma: no cover – dependency is optional until used
     genai = None  # type: ignore
 
+from mistralai import Mistral  # Import Mistral client library
+
 __all__ = [
     "LLMClient",
     "GeminiClient",
+    "MistralClient",
     "get_default_client",
 ]
 
@@ -95,6 +98,53 @@ class GeminiClient(LLMClient):
             logger.info("LLM Response: %s", "".join(collected))
 
 
+class MistralClient(LLMClient):
+    """Wrapper around Mistral AI async streaming API."""
+
+    def __init__(self, api_key: str):
+        from mistralai import Mistral  # Ensure correct import
+        self._client = Mistral(api_key=api_key)
+
+    async def stream(
+        self,
+        prompt: str,
+        content: str,
+        generation_config: Dict[str, Any] | None = None,
+    ) -> AsyncIterator[str]:
+        if generation_config is None:
+            generation_config = {
+                "temperature": 0.2,
+                "max_tokens": 8192,
+            }
+        model = "mistral-large-latest"
+        user_content = f"{prompt}\n\n{content}" if content else prompt
+
+        # Use the correct method for generating text
+        response = await self._client.chat.complete(
+            model= model,
+            messages = [
+                {
+                    "role": "user",
+                    "content": user_content
+                }
+            ],
+        )
+
+        collected: list[str] = []
+
+        # Iterate over the response chunks
+        #for chunk in response["choices"]:
+        #    text = chunk.get("text", "")
+        #    if text:
+        #        collected.append(text)
+        #        yield text
+        collected.append(response.choices[0].message.content)
+
+        # Log the complete response if logging is enabled
+        if collected:
+            logger.info("LLM Response: %s", "".join(collected))
+
+
 # ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
@@ -102,9 +152,13 @@ class GeminiClient(LLMClient):
 
 def get_default_client() -> tuple[LLMClient | None, bool]:
     """Return an LLMClient instance if credentials exist, else (None, False)."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key and genai is not None:
-        return GeminiClient(api_key), True
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    mistral_api_key = os.getenv("MISTRAL_API_KEY")
+
+    if gemini_api_key and genai is not None:
+        return GeminiClient(gemini_api_key), True
+    elif mistral_api_key:
+        return MistralClient(mistral_api_key), True
     return None, False
 
 
@@ -130,4 +184,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(_main())
     except KeyboardInterrupt:
-        pass 
+        pass

@@ -36,6 +36,7 @@ dependencies = [
     "requests>=2.32.4",
     "textual>=3.3.0",
     "pydantic>=2.7.1",
+    "mistralai>=1.9.1"
 ]
 
 [project.urls]

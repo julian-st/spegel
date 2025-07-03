@@ -36,7 +36,9 @@ dependencies = [
     "requests>=2.32.4",
     "textual>=3.3.0",
     "pydantic>=2.7.1",
-    "mistralai>=1.9.1"
+    "mistralai>=1.9.1",
+    "mcp>=1.10.1",
+    "griffe>=1.7.3"
 ]
 
 [project.urls]

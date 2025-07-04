@@ -34,9 +34,8 @@ from mistralai.extra.run.context import RunContext
 from mcp import StdioServerParameters
 from mistralai.extra.mcp.stdio import MCPClientSTDIO
 from mistralai.types import BaseModel
-import os
 
-cwd = os.getcwd()  # Get the current working directory
+enable_llm_logging(logging.INFO)
 
 __all__ = [
     "LLMClient",
@@ -107,12 +106,22 @@ class GeminiClient(LLMClient):
 
 class MistralClient(LLMClient):
     """Wrapper around Mistral AI async streaming API."""
-    
 
     def __init__(self, api_key: str):
         from mistralai import Mistral  # Ensure correct import
         self._client = Mistral(api_key=api_key)
         self._mistral_id = 0
+        self.websearch_agent = self._client.beta.agents.create(
+            model="mistral-medium-2505",
+            description="Agent able to search information over the web, such as news, weather, sport results...",
+            name="Websearch Agent",
+            instructions="You have the ability to perform web searches with `web_search` to find up-to-date information.",
+            tools=[{"type": "web_search"}],
+            completion_args={
+                "temperature": 0.3,
+                "top_p": 0.95,
+            }
+        )
 
     async def stream(
         self,
@@ -125,91 +134,58 @@ class MistralClient(LLMClient):
                 "temperature": 0.2,
                 "max_tokens": 8192,
             }
-        websearch_agent = self._client.beta.agents.create(
-            model="mistral-medium-2505",
-            description="Agent able to search information over the web, such as news, weather, sport results...",
-            name="Websearch Agent",
-            instructions="You have the ability to perform web searches with `web_search` to find up-to-date information.",
-            tools=[{"type": "web_search"}],
-            completion_args={
-                "temperature": 0.3,
-                "top_p": 0.95,
-            }
-        )
+
         model = "mistral-large-latest"
         user_content = f"{prompt}\n\n{content}" if content else prompt
 
-        # Create a run context for the agent inside the async function
         async with RunContext(
-            agent_id=websearch_agent.id,  # Replace with actual agent ID
+            agent_id=self.websearch_agent.id,  # Replace with actual agent ID
             output_format=SpegelResult,
             continue_on_fn_error=True,
         ) as run_ctx:
+            response = await self._client.beta.conversations.run_stream_async(
+                run_ctx=run_ctx,
+                inputs=user_content
+            )
 
-            #mcp_client = MCPClientSTDIO(stdio_params=server_params)
-            #await run_ctx.register_mcp_client(mcp_client=mcp_client)
-            if self._mistral_id == 0:
-                # Use the correct method for generating text
-                response = await self._client.beta.conversations.run_stream_async(
-                    run_ctx=run_ctx,
-                    inputs=user_content
-                )
-
-            #self._mistral_id = response.conversation_id  # Store the conversation ID for future reference
-            # Process the streamed events
-            run_result = None
             collected: list[str] = []
             print("All run entries as dict:")
             async for event in response:
                 try:
                     print("Event received:", event)
-                    if isinstance(event, dict):
-                        run_result = event
-                    else:
-                        # Ensure `event.data` is converted to a string or extract the correct field
-                        if hasattr(event, "data"):
-                            # todo print("Event data:", event.data)
-                            if hasattr(event.data, "content"):
-                                # If event.data has a content attribute, use it
-                                print("Event data content:", event.data.content)
-                                collected.append(str(event.data.content))
-                                yield str(event.data.content)
-                            else:
-                                collected.append(str(event.data))  # Convert to string explicitly
-                                yield str(event.data)  # Yield the data directly
-                            # Ensure the yielded value is a string
+                    if hasattr(event, "data"):
+                        #logger.info("LLM data: %s", event.data)
+                        # Extract the string from RunContext and yield it
+                        if hasattr(event.data, "content"):
+                            logger.info("LLM data has content")
+                            print("Event data has 'content' attribute:", event.data.content)
+                            text = event.data.content
+                            collected.append(text)
+                            yield text
                         else:
-                            print("Event does not have a 'data' attribute:", event)
-                except Exception:
+                            print("Event data does not have 'content' attribute:", event.data)
+                            text = str(event.data[0].content)
+                            collected.append(text)
+                            yield text
+                    else:
+                        print("Event does not have a 'data' attribute:", event)
+                except Exception as e:
+                    print(f"Error processing event: {e}")
                     continue
 
-            if not run_result:
-                print("No run result found in the response.")
-                raise RuntimeError("No run result found")
-
-            # Print the results
-           
-            print("All run entries:")
-            #for entry in run_result.output_entries:
-            #    print(f"{entry}")
-            #    if entry:
-            #        collected.append(entry.data.content)
-            #        yield entry.data.content
-            print(f"Final model: {run_result.output_as_model}")
-
-            # Iterate over the response chunks
-            #for entry in response.output_entries:
-            #    text = entry.get("text", "")
-            #    if text:
-            #        collected.append(text)
-            #        yield text
-
-            # Log the complete response if logging is enabled
             if collected:
                 logger.info("LLM Response: %s", "".join(collected))
+            yield "".join(collected)  # Yield the complete response at the end
+        #yield "".join(collected)  # Yield the complete response at the end
 
 class SpegelResult(BaseModel):
-        content: str
+    """Model for SpegelResult that returns a string representation."""
+
+    text: str
+
+    def __str__(self) -> str:
+        """Return the text as a string."""
+        return self.text
 
 # ---------------------------------------------------------------------------
 # Convenience helpers

@@ -30,12 +30,8 @@ except ImportError:  # pragma: no cover – dependency is optional until used
     genai = None  # type: ignore
 
 from mistralai import Mistral  # Import Mistral client library
-from mistralai.extra.run.context import RunContext
-from mcp import StdioServerParameters
-from mistralai.extra.mcp.stdio import MCPClientSTDIO
-from mistralai.types import BaseModel
 
-enable_llm_logging(logging.INFO)
+#enable_llm_logging(logging.INFO)
 
 __all__ = [
     "LLMClient",

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os
+
 from typing import List
 
 from .config import View
@@ -48,6 +48,7 @@ async def process_view(
     async for chunk in llm_client.stream(full_prompt, ""):
         if chunk:
             parts.append(chunk)
+
     return "\n".join(parts)
 
 
@@ -75,6 +76,6 @@ async def stream_view(
         buffer += chunk
         while "\n" in buffer:
             line, buffer = buffer.split("\n", 1)
-            yield line.strip() + "\n"  # Strip leading/trailing whitespace
+            yield line + "\n"
     if buffer:
-        yield buffer  # Ensure the remaining buffer is clean
+        yield buffer

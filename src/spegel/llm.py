@@ -110,18 +110,6 @@ class MistralClient(LLMClient):
     def __init__(self, api_key: str):
         from mistralai import Mistral  # Ensure correct import
         self._client = Mistral(api_key=api_key)
-        self._mistral_id = 0
-        self.websearch_agent = self._client.beta.agents.create(
-            model="mistral-medium-2505",
-            description="Agent able to search information over the web, such as news, weather, sport results...",
-            name="Websearch Agent",
-            instructions="You have the ability to perform web searches with `web_search` to find up-to-date information.",
-            tools=[{"type": "web_search"}],
-            completion_args={
-                "temperature": 0.3,
-                "top_p": 0.95,
-            }
-        )
 
     async def stream(
         self,
@@ -129,63 +117,33 @@ class MistralClient(LLMClient):
         content: str,
         generation_config: Dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        if generation_config is None:
-            generation_config = {
-                "temperature": 0.2,
-                "max_tokens": 8192,
-            }
-
-        model = "mistral-large-latest"
+        
+        model = "mistral-medium-latest"
         user_content = f"{prompt}\n\n{content}" if content else prompt
 
-        async with RunContext(
-            agent_id=self.websearch_agent.id,  # Replace with actual agent ID
-            output_format=SpegelResult,
-            continue_on_fn_error=True,
-        ) as run_ctx:
-            response = await self._client.beta.conversations.run_stream_async(
-                run_ctx=run_ctx,
-                inputs=user_content
-            )
+        response = await self._client.chat.stream_async(
+            model=model,
+            messages=[{"role": "user", "content": user_content}],
+            stream=True)
+        collected: list[str] = []
+        logger.info("LLM data has run")
+        async for chunk in response:
+            try:
+                print("Event received:", chunk)
+                if chunk.data.choices[0].delta.content is not None:
+                    print(chunk.data.choices[0].delta.content, end="")
+                    text = chunk.data.choices[0].delta.content
+                    collected.append(text)
+                    yield text
+                else:
+                    print("Event does not have a 'data' attribute:", event)
+            except Exception as e:
+                print(f"Error processing event: {e}")
+                continue
 
-            collected: list[str] = []
-            print("All run entries as dict:")
-            async for event in response:
-                try:
-                    print("Event received:", event)
-                    if hasattr(event, "data"):
-                        #logger.info("LLM data: %s", event.data)
-                        # Extract the string from RunContext and yield it
-                        if hasattr(event.data, "content"):
-                            logger.info("LLM data has content")
-                            print("Event data has 'content' attribute:", event.data.content)
-                            text = event.data.content
-                            collected.append(text)
-                            yield text
-                        else:
-                            print("Event data does not have 'content' attribute:", event.data)
-                            text = str(event.data[0].content)
-                            collected.append(text)
-                            yield text
-                    else:
-                        print("Event does not have a 'data' attribute:", event)
-                except Exception as e:
-                    print(f"Error processing event: {e}")
-                    continue
-
-            if collected:
-                logger.info("LLM Response: %s", "".join(collected))
-            yield "".join(collected)  # Yield the complete response at the end
-        #yield "".join(collected)  # Yield the complete response at the end
-
-class SpegelResult(BaseModel):
-    """Model for SpegelResult that returns a string representation."""
-
-    text: str
-
-    def __str__(self) -> str:
-        """Return the text as a string."""
-        return self.text
+        if collected:
+            logger.info("LLM Response: %s", "".join(collected))
+        yield "".join(collected)  # Yield the complete response at the end
 
 # ---------------------------------------------------------------------------
 # Convenience helpers
